@@ -1,26 +1,26 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"fmt"
-	"encoding/json"
+	"os"
+	"strings"
+
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 func main() {
-	fmt.Println("Hello, World!")
-	
-	// Test the schema generation from tools.go
-	fmt.Println("Testing schema generation...")
-	
-	// Generate and display the schema for ReadFileInput
-	toolDefinition := ReadFileDefinition
+	client := anthropic.NewClient()
 
-	fmt.Printf("Tool Definition: %+v\n", toolDefinition)
-	
-	// Pretty print the schema
-	toolDefinitionJson, err := json.MarshalIndent(toolDefinition, "", "  ")
-	if err != nil {
-		fmt.Printf("Error marshalling tool definition: %v\n", err)
+	getCliInput := func() (string, error) {
+		fmt.Printf("Enter input: ")
+		reader := bufio.NewReader(os.Stdin)
+		input, err := reader.ReadString('\n')
+		return strings.TrimSpace(input), err
 	}
 
-	fmt.Printf("Generated Schema:\n%s\n", string(toolDefinitionJson))
+	agent := NewAgent(&client, []ToolDefinition{ReadFileDefinition, ExecuteCommandDefinition}, getCliInput)
+
+	agent.Run(context.Background())
 }
