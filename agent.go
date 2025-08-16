@@ -17,6 +17,14 @@ type Agent struct {
 	tools    []ToolDefinition
 }
 
+func NewCoderAgent(client *anthropic.Client, getInput func() (string, error)) *Agent {
+	return NewAgent(client, []ToolDefinition{ReadFileDefinition, ExecuteCommandDefinition}, getInput)
+}
+
+func NewDocAgent(client *anthropic.Client, getInput func() (string, error)) *Agent {
+	return NewAgent(client, []ToolDefinition{SearchGoDocumentationDefinition}, getInput)
+}
+
 func NewAgent(client *anthropic.Client, tools []ToolDefinition, getInput func() (string, error)) *Agent {
 	return &Agent{
 		client:   client,

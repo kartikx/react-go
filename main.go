@@ -13,6 +13,8 @@ import (
 func main() {
 	client := anthropic.NewClient()
 
+	// TODO - this should move into an agent.
+	// Also need to register one agent with another agent. Should go in as a hook.
 	getCliInput := func() (string, error) {
 		fmt.Printf("Enter input: ")
 		reader := bufio.NewReader(os.Stdin)
@@ -20,7 +22,7 @@ func main() {
 		return strings.TrimSpace(input), err
 	}
 
-	agent := NewAgent(&client, []ToolDefinition{ReadFileDefinition, ExecuteCommandDefinition}, getCliInput)
+	agent := NewDocAgent(&client, getCliInput)
 
 	agent.Run(context.Background())
 }
