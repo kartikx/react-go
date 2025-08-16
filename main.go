@@ -1,11 +1,7 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"fmt"
-	"os"
-	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -13,16 +9,12 @@ import (
 func main() {
 	client := anthropic.NewClient()
 
-	// TODO - this should move into an agent.
-	// Also need to register one agent with another agent. Should go in as a hook.
-	getCliInput := func() (string, error) {
-		fmt.Printf("Enter input: ")
-		reader := bufio.NewReader(os.Stdin)
-		input, err := reader.ReadString('\n')
-		return strings.TrimSpace(input), err
-	}
+	// Create a documentation agent
+	agent := NewDocAgent(&client)
 
-	agent := NewDocAgent(&client, getCliInput)
+	// Start the agent's HTTP server
+	agent.Start()
 
+	// Run the agent (this will block and handle requests)
 	agent.Run(context.Background())
 }

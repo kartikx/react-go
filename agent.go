@@ -4,33 +4,91 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
 type Agent struct {
+	name string
 	client *anthropic.Client
 	// This pattern is great, because it can be used to get input from a user, or from
 	// another agent.
-	getInput func() (string, error)
+	readInput func() (string, error)
+	writeOutput func(string) error
 	tools    []ToolDefinition
+	port int
+	
+	// Network request context for channel-based handling
+	// TODO - should this be in Agent?
+	requestChan chan *http.Request
+	responseChan chan http.ResponseWriter
+	doneChan chan bool
 }
 
-func NewCoderAgent(client *anthropic.Client, getInput func() (string, error)) *Agent {
-	return NewAgent(client, []ToolDefinition{ReadFileDefinition, ExecuteCommandDefinition}, getInput)
+// TODO - ordering of params.
+func NewCoderAgent(client *anthropic.Client) *Agent {
+	return NewAgent(client, CoderTools, readFromCli, writeToCli, "coder", 8080)
 }
 
-func NewDocAgent(client *anthropic.Client, getInput func() (string, error)) *Agent {
-	return NewAgent(client, []ToolDefinition{SearchGoDocumentationDefinition}, getInput)
+func NewDocAgent(client *anthropic.Client) *Agent {
+	agent := NewAgent(client, DocTools, nil, nil, "doc", 8081)
+	
+	// Override the read/write functions to work with network context
+	// TODO - should this be in Agent? Could I benefit from interfaces here?
+	agent.readInput = agent.readFromNetwork
+	agent.writeOutput = agent.writeToNetwork
+	
+	return agent
 }
 
-func NewAgent(client *anthropic.Client, tools []ToolDefinition, getInput func() (string, error)) *Agent {
+func NewAgent(client *anthropic.Client, tools []ToolDefinition, readInput func() (string, error), writeOutput func(string) error, name string, port int) *Agent {
 	return &Agent{
+		name: name,
 		client:   client,
 		tools:    tools,
-		getInput: getInput,
+		readInput: readInput,
+		writeOutput: writeOutput,
+		port: port,
+		requestChan: make(chan *http.Request, 1),
+		responseChan: make(chan http.ResponseWriter, 1),
+		doneChan: make(chan bool, 1),
 	}
+}
+
+func (a *Agent) Start() error {
+	// Set up HTTP handler for this agent
+	http.HandleFunc(fmt.Sprintf("/%s", a.name), a.handleRequest)
+	
+	// Start the agent on the port.
+	go func() {
+		http.ListenAndServe(fmt.Sprintf(":%d", a.port), nil)
+	}()
+
+	return nil
+}
+
+func (a *Agent) handleRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	// Send the request to the agent's channel
+	a.requestChan <- r
+	
+	// Store the response writer
+	a.responseChan <- w
+	
+	// Wait for the agent to process and write the response
+	// The agent will call writeToNetwork which will write directly to this response writer
+	// We need to wait here until the agent is done
+	
+	// Wait for completion signal
+	// TODO - could do error handling here, the channel could take an error.
+	<-a.doneChan
 }
 
 func (a *Agent) Run(ctx context.Context) (string, error) {
@@ -52,7 +110,7 @@ func (a *Agent) Run(ctx context.Context) (string, error) {
 
 	for {
 		if takeInput {
-			input, err := a.getInput()
+			input, err := a.readInput()
 			if err != nil {
 				return "", err
 			}
@@ -69,7 +127,7 @@ func (a *Agent) Run(ctx context.Context) (string, error) {
 
 		toolResults := []anthropic.ContentBlockParamUnion{}
 
-		fmt.Println("\tReceived response... ")
+		// fmt.Println("\tReceived response... ")
 
 		ch := make(chan anthropic.ContentBlockParamUnion, 20)
 
@@ -78,9 +136,9 @@ func (a *Agent) Run(ctx context.Context) (string, error) {
 		for _, content := range response.Content {
 			switch block := content.AsAny().(type) {
 			case anthropic.TextBlock:
-				fmt.Printf("Text: %s\n", block.Text)
+				// fmt.Printf("Text: %s\n", block.Text)
 			case anthropic.ToolUseBlock:
-				fmt.Printf("Tool: %s\n", block.Name)
+				// fmt.Printf("Tool: %s\n", block.Name)
 				go a.ExecuteTool(block.ID, block.Name, block.Input, ch)
 				toolCount++
 				// toolResults = append(toolResults, toolResult)
@@ -94,6 +152,7 @@ func (a *Agent) Run(ctx context.Context) (string, error) {
 
 		if len(toolResults) == 0 {
 			takeInput = true
+			a.writeOutput(response.Content[0].Text)
 		} else {
 			takeInput = false
 			messages = append(messages, anthropic.NewUserMessage(toolResults...))
@@ -152,4 +211,34 @@ func (a *Agent) ExecuteTool(toolID string, toolName string, toolInput json.RawMe
 	}
 
 	ch <- anthropic.NewToolResultBlock(toolID, result, false)
+}
+
+// readFromNetwork reads input from the stored request context
+func (a *Agent) readFromNetwork() (string, error) {
+	// Wait for a request to come in
+	req := <-a.requestChan
+	
+	// Read the request body
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read request body: %v", err)
+	}
+	
+	return string(body), nil
+}
+
+// writeToNetwork writes output to the stored response context
+func (a *Agent) writeToNetwork(message string) error {
+	// Get the response writer
+	w := <-a.responseChan
+	
+	// Write the response
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write([]byte(message))
+	
+	// Signal completion to the HTTP handler
+	a.doneChan <- true
+	
+	return err
 }

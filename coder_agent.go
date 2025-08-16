@@ -1,12 +1,27 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 )
+
+func readFromCli() (string, error) {
+	fmt.Printf("Enter input: ")
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	return strings.TrimSpace(input), err
+}
+
+func writeToCli(message string) error {
+	fmt.Println(message)
+	return nil
+}
 
 // Coder-specific tools
 var CoderTools = []ToolDefinition{
@@ -83,3 +98,52 @@ func ExecuteCommand(input json.RawMessage) (string, error) {
 	return fmt.Sprintf("Command: %s\nOutput:\n%s", readFileInput.Command, string(output)), nil
 }
 
+
+// Invoke documentation agent.
+type InvokeDocumentationAgentInput struct {
+	Query string `json:"query" jsonschema_description:"The query to search for in the documentation"`
+}
+
+var InvokeDocumentationAgentInputSchema = GenerateSchema[InvokeDocumentationAgentInput]()
+
+var InvokeDocumentationAgentDefinition = ToolDefinition{
+	Name:        "invoke_documentation_agent",
+	Description: "Invoke the documentation agent to search for information. Use this when you need to find documentation for a specific package or function.",
+	InputSchema: InvokeDocumentationAgentInputSchema,
+	Function:    InvokeDocumentationAgent,
+}
+
+func InvokeDocumentationAgent(input json.RawMessage) (string, error) {
+	invokeDocumentationAgentInput := InvokeDocumentationAgentInput{}
+
+	err := json.Unmarshal(input, &invokeDocumentationAgentInput)
+	if err != nil {
+		return "", err
+	}
+
+	reqBody, err := json.Marshal(map[string]string{
+		"query": invokeDocumentationAgentInput.Query,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	// TODO - how should we figure out the port? perhaps at startup, agents should register with the main agent.
+	resp, err := http.Post("http://localhost:8081", "application/json", strings.NewReader(string(reqBody)))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("documentation agent returned status %d", resp.StatusCode)
+	}
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+
+	return string(respBytes), nil
+}
