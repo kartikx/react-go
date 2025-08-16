@@ -27,6 +27,7 @@ func writeToCli(message string) error {
 var CoderTools = []ToolDefinition{
 	ReadFileDefinition,
 	ExecuteCommandDefinition,
+	InvokeDocumentationAgentDefinition,
 }
 
 // ReadFile tool for reading file contents
@@ -127,6 +128,8 @@ func InvokeDocumentationAgent(input json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	fmt.Println("Invoking documentation agent with query: ", invokeDocumentationAgentInput.Query)
 
 	// TODO - how should we figure out the port? perhaps at startup, agents should register with the main agent.
 	resp, err := http.Post("http://localhost:8081", "application/json", strings.NewReader(string(reqBody)))

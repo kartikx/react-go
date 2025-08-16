@@ -30,10 +30,12 @@ type Agent struct {
 
 // TODO - ordering of params.
 func NewCoderAgent(client *anthropic.Client) *Agent {
+	fmt.Println("Creating coder agent")
 	return NewAgent(client, CoderTools, readFromCli, writeToCli, "coder", 8080)
 }
 
 func NewDocAgent(client *anthropic.Client) *Agent {
+	fmt.Println("Creating doc agent")
 	agent := NewAgent(client, DocTools, nil, nil, "doc", 8081)
 	
 	// Override the read/write functions to work with network context
@@ -60,7 +62,7 @@ func NewAgent(client *anthropic.Client, tools []ToolDefinition, readInput func()
 
 func (a *Agent) Start() error {
 	// Set up HTTP handler for this agent
-	http.HandleFunc(fmt.Sprintf("/%s", a.name), a.handleRequest)
+	http.HandleFunc("/", a.handleRequest)
 	
 	// Start the agent on the port.
 	go func() {
@@ -75,6 +77,8 @@ func (a *Agent) handleRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	
+	fmt.Println("Handling request")
 	
 	// Send the request to the agent's channel
 	a.requestChan <- r
@@ -114,6 +118,8 @@ func (a *Agent) Run(ctx context.Context) (string, error) {
 			if err != nil {
 				return "", err
 			}
+
+			fmt.Println("Received input: ", input)
 
 			messages = append(messages, anthropic.NewUserMessage(anthropic.NewTextBlock(input)))
 		}
@@ -184,6 +190,7 @@ func (a *Agent) Infer(ctx context.Context, messages []anthropic.MessageParam, to
 func (a *Agent) ExecuteTool(toolID string, toolName string, toolInput json.RawMessage, ch chan<- anthropic.ContentBlockParamUnion) {
 	fmt.Printf("Executing tool %s with input %s\n", toolName, toolInput)
 
+	// TODO - remove this
 	time.Sleep(1 * time.Second)
 
 	var toolDef ToolDefinition
@@ -206,6 +213,7 @@ func (a *Agent) ExecuteTool(toolID string, toolName string, toolInput json.RawMe
 	// This is the reason why our function takes in a json.RawMessage.
 	result, err := toolDef.Function(toolInput)
 	if err != nil {
+		fmt.Println("Error executing tool: ", err)
 		ch <- anthropic.NewToolResultBlock(toolID, err.Error(), true)
 		return
 	}
@@ -215,6 +223,8 @@ func (a *Agent) ExecuteTool(toolID string, toolName string, toolInput json.RawMe
 
 // readFromNetwork reads input from the stored request context
 func (a *Agent) readFromNetwork() (string, error) {
+	fmt.Println("Reading from network")
+
 	// Wait for a request to come in
 	req := <-a.requestChan
 	
@@ -229,6 +239,9 @@ func (a *Agent) readFromNetwork() (string, error) {
 
 // writeToNetwork writes output to the stored response context
 func (a *Agent) writeToNetwork(message string) error {
+	fmt.Println("Writing to network")
+
+
 	// Get the response writer
 	w := <-a.responseChan
 	
