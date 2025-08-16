@@ -61,15 +61,27 @@ func (a *Agent) Run(ctx context.Context) (string, error) {
 
 		toolResults := []anthropic.ContentBlockParamUnion{}
 
+		fmt.Println("\tReceived response... ")
+
+		ch := make(chan anthropic.ContentBlockParamUnion, 20)
+
+		toolCount := 0	
+
 		for _, content := range response.Content {
 			switch block := content.AsAny().(type) {
 			case anthropic.TextBlock:
 				fmt.Printf("Text: %s\n", block.Text)
 			case anthropic.ToolUseBlock:
 				fmt.Printf("Tool: %s\n", block.Name)
-				toolResult := a.ExecuteTool(block.ID, block.Name, block.Input)
-				toolResults = append(toolResults, toolResult)
+				go a.ExecuteTool(block.ID, block.Name, block.Input, ch)
+				toolCount++
+				// toolResults = append(toolResults, toolResult)
 			}
+		}
+
+		for i := 0; i < toolCount; i++ {
+			fmt.Printf("Received tool result %d\n", i)
+			toolResults = append(toolResults, <-ch)
 		}
 
 		if len(toolResults) == 0 {
@@ -84,9 +96,15 @@ func (a *Agent) Run(ctx context.Context) (string, error) {
 func (a *Agent) Infer(ctx context.Context, messages []anthropic.MessageParam, tools []anthropic.ToolUnionParam) (*anthropic.Message, error) {
 	response, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
 		MaxTokens: 1024,
-		Model: anthropic.ModelClaude3_5Haiku20241022,
+		// Model: anthropic.ModelClaude3_5Haiku20241022,
+		Model: anthropic.ModelClaudeSonnet4_20250514,
 		Messages: messages,
-		Tools: tools,	
+		Tools: tools,
+		System: []anthropic.TextBlockParam{
+			{
+				Text: "<use_parallel_tool_calls> For maximum efficiency, whenever you perform multiple independent operations, invoke all relevant tools simultaneously rather than sequentially. Prioritize calling tools in parallel whenever possible. For example, when reading 3 files, run 3 tool calls in parallel to read all 3 files into context at the same time. When running multiple read-only commands like `ls` or `list_dir`, always run all of the commands in parallel. Err on the side of maximizing parallel tool calls rather than running too many tools sequentially. </use_parallel_tool_calls>",
+			},
+		},
 	})
 
 	if err != nil {
@@ -96,7 +114,7 @@ func (a *Agent) Infer(ctx context.Context, messages []anthropic.MessageParam, to
 	return response, nil
 }
 
-func (a *Agent) ExecuteTool(toolID string, toolName string, toolInput json.RawMessage) (anthropic.ContentBlockParamUnion) {
+func (a *Agent) ExecuteTool(toolID string, toolName string, toolInput json.RawMessage, ch chan<- anthropic.ContentBlockParamUnion) {
 	fmt.Printf("Executing tool %s with input %s\n", toolName, toolInput)
 
 	time.Sleep(1 * time.Second)
@@ -113,15 +131,17 @@ func (a *Agent) ExecuteTool(toolID string, toolName string, toolInput json.RawMe
 	}
 
 	if !toolFound {
-		return anthropic.NewToolResultBlock(toolID, "Tool not found", true)
+		ch <- anthropic.NewToolResultBlock(toolID, "Tool not found", true)
+		return
 	}
 
 
 	// This is the reason why our function takes in a json.RawMessage.
 	result, err := toolDef.Function(toolInput)
 	if err != nil {
-		return anthropic.NewToolResultBlock(toolID, err.Error(), true)
+		ch <- anthropic.NewToolResultBlock(toolID, err.Error(), true)
+		return
 	}
 
-	return anthropic.NewToolResultBlock(toolID, result, false)
+	ch <- anthropic.NewToolResultBlock(toolID, result, false)
 }

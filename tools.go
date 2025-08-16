@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -96,10 +97,8 @@ func ExecuteCommand(input json.RawMessage) (string, error) {
 	// Capture both stdout and stderr
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(output), err
+		return fmt.Sprintf("Command: %s\nOutput:\n%s", executeCommandInput.Command, string(output)), err
 	}
 	
-	return string(output), nil
+	return fmt.Sprintf("Command: %s\nOutput:\n%s", executeCommandInput.Command, string(output)), nil
 }
-
-// TODO - execute file.
