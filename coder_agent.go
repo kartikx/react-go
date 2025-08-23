@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bufio"
+	// "bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,13 +9,21 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 func readFromCli() (string, error) {
-	fmt.Printf("Enter input: ")
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
-	return strings.TrimSpace(input), err
+	fmt.Println("Coder Agent: Sleeping for 5 seconds")
+
+	time.Sleep(5 * time.Second)
+
+
+	// fmt.Printf("Enter input: ")
+	// reader := bufio.NewReader(os.Stdin)
+	// input, err := reader.ReadString('\n')
+	// return strings.TrimSpace(input), err
+
+	return "can you check \"encoding/json\"", nil
 }
 
 func writeToCli(message string) error {
@@ -29,6 +37,8 @@ var CoderTools = []ToolDefinition{
 	ExecuteCommandDefinition,
 	InvokeDocumentationAgentDefinition,
 }
+
+
 
 // ReadFile tool for reading file contents
 type ReadFileInput struct {
@@ -131,8 +141,13 @@ func InvokeDocumentationAgent(input json.RawMessage) (string, error) {
 
 	fmt.Println("Invoking documentation agent with query: ", invokeDocumentationAgentInput.Query)
 
-	// TODO - how should we figure out the port? perhaps at startup, agents should register with the main agent.
-	resp, err := http.Post("http://localhost:8081", "application/json", strings.NewReader(string(reqBody)))
+	// Get doc agent URL from environment variable
+	docAgentURL := os.Getenv("DOC_AGENT_URL")
+	if docAgentURL == "" {
+		docAgentURL = "http://localhost:8081" // default fallback
+	}
+
+	resp, err := http.Post(docAgentURL, "application/json", strings.NewReader(string(reqBody)))
 	if err != nil {
 		return "", err
 	}

@@ -13,13 +13,14 @@ import (
 
 type Agent struct {
 	name string
+	port int
+
 	client *anthropic.Client
 	// This pattern is great, because it can be used to get input from a user, or from
 	// another agent.
 	readInput func() (string, error)
 	writeOutput func(string) error
 	tools    []ToolDefinition
-	port int
 	
 	// Network request context for channel-based handling
 	// TODO - should this be in Agent?
@@ -31,7 +32,13 @@ type Agent struct {
 // TODO - ordering of params.
 func NewCoderAgent(client *anthropic.Client) *Agent {
 	fmt.Println("Creating coder agent")
-	return NewAgent(client, CoderTools, readFromCli, writeToCli, "coder", 8080)
+	agent := NewAgent(client, CoderTools, nil, nil, "coder", 8080)
+	
+	// Override the read/write functions to work with network context
+	agent.readInput = agent.readFromNetwork
+	agent.writeOutput = agent.writeToNetwork
+	
+	return agent
 }
 
 func NewDocAgent(client *anthropic.Client) *Agent {
@@ -61,12 +68,22 @@ func NewAgent(client *anthropic.Client, tools []ToolDefinition, readInput func()
 }
 
 func (a *Agent) Start() error {
-	// Set up HTTP handler for this agent
-	http.HandleFunc("/", a.handleRequest)
+	// Set up HTTP handlers
+	http.HandleFunc(fmt.Sprintf("/%s", a.name), a.handleRequest)
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(fmt.Sprintf("%s agent is healthy", a.name)))
+	})
+	
+	fmt.Printf("Setting up HTTP handlers for %s agent on port %d\n", a.name, a.port)
+	fmt.Printf("Endpoints available: /%s, /health\n", a.name)
 	
 	// Start the agent on the port.
 	go func() {
-		http.ListenAndServe(fmt.Sprintf(":%d", a.port), nil)
+		err := http.ListenAndServe(fmt.Sprintf(":%d", a.port), nil)
+		if err != nil {
+			fmt.Printf("HTTP server error: %v\n", err)
+		}
 	}()
 
 	return nil

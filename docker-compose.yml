@@ -1,0 +1,31 @@
+services:
+  doc-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.doc
+    ports:
+      - "8082:8080"
+    environment:
+      - AGENT_TYPE=doc
+      - PORT=8080
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    networks:
+      - agent-network
+
+  coder-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.coder
+    ports:
+      - "8083:8080"
+    environment:
+      - AGENT_TYPE=coder
+      - PORT=8080
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - DOC_AGENT_URL=http://doc-agent:8080/doc
+    networks:
+      - agent-network
+
+networks:
+  agent-network:
+    driver: bridge
